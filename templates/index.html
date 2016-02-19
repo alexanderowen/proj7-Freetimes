@@ -13,10 +13,11 @@
 <script type="text/javascript" src="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.js"></script>
 <link rel="stylesheet" type="text/css" href="//cdn.jsdelivr.net/bootstrap.daterangepicker/2/daterangepicker.css" />
 
-  <!-- Our own style sheet -->
-  <link rel="stylesheet" href="/static/css/busy.css" />
+<!-- Our own style sheet -->
+<link rel="stylesheet" href="/static/css/busy.css" />
 
 </head>
+
 
 <body>
 <div class="container">
@@ -28,7 +29,6 @@
   they appear above the rest of the content, just until the next 
   action.
   -->
-
 {% with messages = get_flashed_messages() %}
   {% if messages %}
     <ul class=flashes>
@@ -65,48 +65,76 @@
     });
   </script>
   
+  
 <h2>Time range</h2>
-
   <h5>From</h3>
-  <input type="time" name="begintime" style="color:black"></input>
-
-<br>
+    <input type="time" name="begintime"></input>    
+  <br>
   <h5>To</h3>
-  <input type="time" name="endtime" style="color:black"></input>
-
-
+    <input type="time" name="endtime"></input>
 <br><br>
+
 <label>
-<input type="submit" value="I want this date and time" style="color: black"></input>
+<input type="submit" value="I want this date and time"></input>
 </label>
+</form>
 
 {% if session.daterange is defined %}
 <h3>Current Date Range and Times</h3>
 {{ session.daterange }} <br>
-{{ session.begin_time }} -> {{ session.end_time }}
+{{ session.begin_time | fmttime }} - {{ session.end_time | fmttime}}
 {% endif %}
 
-</form>
+
 {% if session.calendars is defined  %}
   <h3>Please select the calendar(s) you would like to use: </h3>
   {% for cal in session.calendars if cal.selected %}
   <div class="row">  
-          <div class="col-md-4">
-          <input type="checkbox" id="{{ loop.index0 }}"> {{ cal.summary }}   
-          </div>
-         {% if loop.index is divisibleby 3 %}
-          </div> <div class="row">
-         {% endif %}  
+    <div class="col-md-4">
+        <input type="checkbox" id="{{ loop.index0 }}"> {{ cal.summary }}   
+    </div>
+    {% if loop.index is divisibleby 3 %}
+      </div> <div class="row">
+    {% endif %}  
   </div>  
+  
   {% if loop.last %}
   <br>
-  <input type="submit" id="submitCalendars" value="I want to use these calendars" style="color: black"></input>
+  <input type="submit" id="submitCalendarsButton" value="I want to use these calendars"></input>
   {% endif %}
+  
   {% endfor %}
 {% endif %}
- 
+
+<br>
+
+{% if session.busytimes is defined  %}
+<h3>Here are your busy times</h3>
+  {% for cal in session.busytimes %}
+    {% for name, conflicts in cal.items() %}
+    
+      {% if loop.first %}
+        <div class="row">
+          <h4>{{ name }}</h4>
+        </div>
+      {% endif %}
+    
+      {% for conflict in conflicts %}  
+        <div class="row">
+           {{ conflict }}
+        </div>
+      {% endfor %}    
+    {% endfor %}
+  {% endfor %}
+{% endif %}
+
+
+</div>  <!-- end container (for bootstrap) -->
+</body> 
+
 <script>
-$("#submitCalendars").click( function() {
+// Get the ids (indices) of the calendars selected, send them to the server
+$("#submitCalendarsButton").click( function() {	
 	var checked = $("input:checked");
 	var ids = "";
 	for (var i = 0; i < checked.length; i++) {
@@ -116,37 +144,9 @@ $("#submitCalendars").click( function() {
 	$.getJSON("/_setbusytimes", 
 		{indices : ids},
 		function(data) {
-			console.log(data);			
 			window.location.href = "index";
 		}
 	);
 });
 </script>
-
-
-<br>
-{% if session.busytimes is defined  %}
-<h3>Here are your busy times</h3>
-  {% for cal in session.busytimes %}
-    {% for name, conflicts in cal.items() %}
-    
-    {% if loop.first %}
-      <div class="row">
-        <h4>{{ name }}</h4>
-      </div>
-    {% endif %}
-    
-      {% for conflict in conflicts %}  
-      <div class="row">
-         {{ conflict }}
-      </div>
-      {% endfor %}    
-    {% endfor %}
-  {% endfor %}
-
-{% endif %}
-
-
-</div>  <!-- container (for bootstrap) -->
-</body> 
 </html>

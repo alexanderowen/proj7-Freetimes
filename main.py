@@ -44,8 +44,6 @@ APPLICATION_NAME = 'MeetMe class project'
 @app.route("/index")
 def index():
   app.logger.debug("Entering index")
-  ## if 'begin_date' not in flask.session:
-    ## init_session_values()
   return render_template('index.html')
 
 @app.route("/choose")
@@ -65,29 +63,51 @@ def choose():
     flask.session['calendars'] = list_calendars(gcal_service)
     return render_template('index.html')
 
-# AJAX HANDLER
+#############################
+#
+#  AJAX request handler
+#
+#############################
 @app.route("/_setbusytimes")
 def find_busy():
-	# TODO: GET STUFF
+	'''
+	Receive AJAX request to find the busy times 
+	'''
 	indices = request.args.get("indices", type=str)
 	
 	credentials = valid_credentials()
 	gcal_service = get_gcal_service(credentials)
+	set_busy_times(gcal_service, indices)
+	
+	return jsonify(result={})
+	
+def set_busy_times(gcal_service, calendar_indices):
+	'''
+	Sets the Flask session variable 'busytimes' based on date/time range and 
+	calendars selected.
+	
+	flask.session['busytimes'] is a list of calendar busy times of the form 
+	[ {"cal1" : [busy_range_1, busy_range_2, ...]}, {"cal2" : [...]}, ... ]
+	
+	Args:
+		gcal_service: 		Google Calendar Service Object, the service to 
+							send freebusy requests to
+		calendar_indices: 	String, the indices of the calendars selected
+	'''
 	busytimes = []
-	daterange = flask.session['daterange'].split(" - ")
-	start_datetime = arrow.get(daterange[0] + flask.session['begin_time'], "MM/DD/YYYYHH:mm:ssZZ")
-	end_datetime = arrow.get(daterange[0] + flask.session['end_time'], "MM/DD/YYYYHH:mm:ssZZ")
-	
-	# Please rename this later
-	end_date = arrow.get(daterange[1], "MM/DD/YYYY")
-	
-	app.logger.debug("Start_datetime: {}  and End_datetime: {}".format(start_datetime, end_datetime))
-	for index in indices:
+	start_date, end_date = flask.session['daterange'].split(" - ")
+	time_range_start = arrow.get(start_date + flask.session['begin_time'], "MM/DD/YYYYHH:mm:ssZZ")
+	time_range_end = arrow.get(start_date + flask.session['end_time'], "MM/DD/YYYYHH:mm:ssZZ")
+	end_date = arrow.get(end_date, "MM/DD/YYYY")
+
+	app.logger.debug("Sending freebusy requests to Google Cal")
+	for index in calendar_indices:
 		calendar = flask.session['calendars'][int(index)]
 		rslt = {calendar['summary'] : []}
-		timeMin = start_datetime.isoformat()
-		timeMax = end_datetime.isoformat()
-		for day in arrow.Arrow.span_range('day', start_datetime, end_date):		
+		timeMin = time_range_start.isoformat()
+		timeMax = time_range_end.isoformat()
+		
+		for day in arrow.Arrow.span_range('day', time_range_start, end_date):		
 			query = {
 				"timeMin": timeMin,
 				"timeMax": timeMax,
@@ -100,22 +120,20 @@ def find_busy():
 			
 			gcal_request = gcal_service.freebusy().query(body=query)	
 			result = gcal_request.execute()
+			
 			for busytime in result['calendars'][calendar['id']]['busy']:
-			    app.logger.debug("BUSY TIME!!! {}".format(busytime))
-
 			    start = arrow.get(busytime['start']).to('local')
 			    end = arrow.get(busytime['end']).to('local')
 			    conflict = "{} - {}".format(start.format("MM/DD/YYYY hh:mm A"), end.format("hh:mm A"))
+			    
 			    rslt[calendar['summary']].append(conflict)
 			    
 			timeMin = next_day(timeMin)
 			timeMax = next_day(timeMax)
-		busytimes.append(rslt)
+		busytimes.append(rslt)		
 		
-		
-	flask.session['busytimes'] = busytimes	
-	#app.logger.debug("RESPONSE!!!", result)
-	return jsonify(result={"True": "True"})
+	flask.session['busytimes'] = busytimes		
+	return
 	
 ####
 #
@@ -249,33 +267,7 @@ def setrange():
     flask.session['begin_time'] = bt
     flask.session['end_time'] = et
     
-    app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(begintime, endtime, flask.session['begin_time'], flask.session['end_time']))
     return flask.redirect(flask.url_for("choose"))
-
-####
-#
-#   Initialize session variables 
-#
-####
-
-def init_session_values():
-    """
-    Start with some reasonable defaults for date and time ranges.
-    Note this must be run in app context ... can't call from main. 
-    """
-    # Default date span = tomorrow to 1 week from now
-    now = arrow.now('local')
-    tomorrow = now.replace(days=+1)
-    nextweek = now.replace(days=+7)
-    flask.session["begin_date"] = tomorrow.floor('day').isoformat()
-    flask.session["end_date"] = nextweek.ceil('day').isoformat()
-    flask.session["daterange"] = "{} - {}".format(
-        tomorrow.format("MM/DD/YYYY"),
-        nextweek.format("MM/DD/YYYY"))
-    # Default time span each day, 8 to 5
-    flask.session["begin_time"] = interpret_time("9am")
-    flask.session["end_time"] = interpret_time("5pm")
-
 
 
 def next_day(isotext):
@@ -313,8 +305,7 @@ def list_calendars(service):
         summary = cal["summary"]
         # Optional binary attributes with False as default
         selected = ("selected" in cal) and cal["selected"]
-        primary = ("primary" in cal) and cal["primary"]
-        
+        primary = ("primary" in cal) and cal["primary"]        
 
         result.append(
           { "kind": kind,
@@ -325,24 +316,6 @@ def list_calendars(service):
             })
     return sorted(result, key=cal_sort_key)
 
-def interpret_time( text ):
-    """
-    Read time in a human-compatible format and
-    interpret as ISO format with local timezone.
-    May throw exception if time can't be interpreted. In that
-    case it will also flash a message explaining accepted formats.
-    """
-    app.logger.debug("Decoding time '{}'".format(text))
-    time_formats = ["ha", "h:mma",  "h:mm a", "H:mm"]
-    try: 
-        as_arrow = arrow.get(text, time_formats).replace(tzinfo=tz.tzlocal())
-        app.logger.debug("Succeeded interpreting time")
-    except:
-        app.logger.debug("Failed to interpret time")
-        flask.flash("Time '{}' didn't match accepted formats 13:30 or 1:30pm"
-              .format(text))
-        raise
-    return as_arrow.isoformat()
 
 def cal_sort_key( cal ):
     """
@@ -389,8 +362,8 @@ def format_arrow_date( date ):
 @app.template_filter( 'fmttime' )
 def format_arrow_time( time ):
     try:
-        normal = arrow.get( time )
-        return normal.format("HH:mm")
+        normal = arrow.get(time, "HH:mm:ssZZ")
+        return normal.format("hh:mm A")
     except:
         return "(bad time)"
     

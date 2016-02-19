@@ -1,11 +1,7 @@
 /*
- * I wanted to do this: 
- * @import ../js/node_modules/bootstrap/dist/css/bootstrap.min.css;
- * @import ../js/node_modules/bootstrap-daterangepicker/daterangepicker.css;
- * 
- * Works great in my local environment with clean-css, but I haven't figured 
- * out how to install clean-css on ix, so for now I'll explicitly load all the 
- * style sheets in the html. 
+ * Style sheet to be used with pages
+ * 02/18/2016: Current theme is BLACK! A black theme is more energy
+ * efficient than an all white theme.
  */
 
 body {
@@ -16,3 +12,6 @@ div, h2, h1 {
 	color: #ddd;
 }
 
+input {
+	color: black;
+}
