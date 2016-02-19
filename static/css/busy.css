@@ -9,6 +9,10 @@
  */
 
 body {
-    background-color: "#ccffcc";
+    background-color: black;
+}
+
+div, h2, h1 {
+	color: #ddd;
 }
 

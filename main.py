@@ -2,6 +2,7 @@ import flask
 from flask import render_template
 from flask import request
 from flask import url_for
+from flask import jsonify # For AJAX transactions
 import uuid
 
 import json
@@ -19,6 +20,9 @@ import httplib2   # used in oauth2 flow
 
 # Google API for services 
 from apiclient import discovery
+
+# Favicon rendering
+import os
 
 ###
 # Globals
@@ -61,6 +65,51 @@ def choose():
     flask.session['calendars'] = list_calendars(gcal_service)
     return render_template('index.html')
 
+# AJAX HANDLER
+@app.route("/_setbusytimes")
+def find_busy():
+	# TODO: GET STUFF
+	indices = request.args.get("indices", type=str)
+	
+	credentials = valid_credentials()
+	gcal_service = get_gcal_service(credentials)
+	busytimes = []
+	daterange = flask.session['daterange'].split(" - ")
+	start_datetime = arrow.get(daterange[0] + flask.session['begin_time'], "MM/DD/YYYYHH:mm:ssZZ")
+	end_datetime = arrow.get(daterange[0] + flask.session['end_time'], "MM/DD/YYYYHH:mm:ssZZ")
+	
+	# Please rename this later
+	end_date = arrow.get(daterange[1], "MM/DD/YYYY")
+	
+	app.logger.debug("Start_datetime: {}  and End_datetime: {}".format(start_datetime, end_datetime))
+	for index in indices:
+		calendar = flask.session['calendars'][int(index)]
+		rslt = {calendar['summary'] : []}
+		for day in arrow.Arrow.span_range('day', start_datetime, end_date):
+			query = {
+				"timeMin": start_datetime.isoformat(),
+				"timeMax": end_datetime.isoformat(),
+				"items": [
+					{
+						"id": calendar['id']
+					}
+				]
+			}
+			gcal_request = gcal_service.freebusy().query(body=query)	
+			result = gcal_request.execute()
+			for busytime in result['calendars'][calendar['id']]['busy']:
+			    app.logger.debug("BUSY TIME!!! {}".format(busytime))
+
+			    start = arrow.get(busytime['start']).to('local')
+			    end = arrow.get(busytime['end']).to('local')
+			    conflict = "{} - {}".format(start.format("MM/DD/YYYY hh:mm A"), end.format("hh:mm A"))
+			    rslt[calendar['summary']].append(conflict)
+		busytimes.append(rslt)
+		
+	flask.session['busytimes'] = busytimes	
+	#app.logger.debug("RESPONSE!!!", result)
+	return jsonify(result={"True": "True"})
+	
 ####
 #
 #  Google calendar authorization:
@@ -100,11 +149,9 @@ def valid_credentials():
     if 'credentials' not in flask.session:
       return None
 
-    credentials = client.OAuth2Credentials.from_json(
-        flask.session['credentials'])
+    credentials = client.OAuth2Credentials.from_json(flask.session['credentials'])
 
-    if (credentials.invalid or
-        credentials.access_token_expired):
+    if (credentials.invalid or credentials.access_token_expired):
       return None
     return credentials
 
@@ -180,20 +227,22 @@ def oauth2callback():
 @app.route('/setrange', methods=['POST'])
 def setrange():
     """
-    User chose a date range with the bootstrap daterange
-    widget.
+    User chose a date range with the bootstrap daterange widget.
     """
     app.logger.debug("Entering setrange")  
-    flask.flash("Setrange gave us '{}'".format(
-      request.form.get('daterange')))
     daterange = request.form.get('daterange')
+    begintime = request.form.get('begintime')
+    endtime = request.form.get('endtime')
+    flask.flash("Setrange gave us '{}', '{}', '{}'".format(daterange, begintime, endtime))
+    
+    bt = arrow.get(begintime, "HH:mm").replace(tzinfo=tz.tzlocal()).isoformat().split("T")[1]
+    et = arrow.get(endtime, "HH:mm").replace(tzinfo=tz.tzlocal()).isoformat().split("T")[1]
+    
     flask.session['daterange'] = daterange
-    daterange_parts = daterange.split()
-    flask.session['begin_date'] = interpret_date(daterange_parts[0])
-    flask.session['end_date'] = interpret_date(daterange_parts[2])
-    app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(
-      daterange_parts[0], daterange_parts[1], 
-      flask.session['begin_date'], flask.session['end_date']))
+    flask.session['begin_time'] = bt
+    flask.session['end_time'] = et
+    
+    app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(begintime, endtime, flask.session['begin_time'], flask.session['end_time']))
     return flask.redirect(flask.url_for("choose"))
 
 ####
@@ -220,6 +269,8 @@ def init_session_values():
     flask.session["begin_time"] = interpret_time("9am")
     flask.session["end_time"] = interpret_time("5pm")
 
+
+# THIS MAY NEED TO BE TOSSED
 def interpret_time( text ):
     """
     Read time in a human-compatible format and
@@ -228,7 +279,7 @@ def interpret_time( text ):
     case it will also flash a message explaining accepted formats.
     """
     app.logger.debug("Decoding time '{}'".format(text))
-    time_formats = ["ha", "h:mma",  "h:mm a", "H:mm"]
+    time_formats = ["ha", "h:mma",  "h:mm a", "H:mm", "HH:mm"]
     try: 
         as_arrow = arrow.get(text, time_formats).replace(tzinfo=tz.tzlocal())
         app.logger.debug("Succeeded interpreting time")
@@ -239,6 +290,7 @@ def interpret_time( text ):
         raise
     return as_arrow.isoformat()
 
+# THIS MAY NEED TO BE TOSSED
 def interpret_date( text ):
     """
     Convert text of date to ISO format used internally,
@@ -315,7 +367,18 @@ def cal_sort_key( cal ):
     else:
        primary_key = "X"
     return (primary_key, selected_key, cal["summary"])
-
+    
+    
+#################
+#
+# Favicon function rendering
+#
+#################
+  
+@app.route('/favicon.ico')
+def favicon():
+    return flask.send_from_directory(os.path.join(app.root_path, 'static'),
+                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 #################
 #
