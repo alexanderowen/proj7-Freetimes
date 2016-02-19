@@ -79,6 +79,13 @@
 <label>
 <input type="submit" value="I want this date and time" style="color: black"></input>
 </label>
+
+{% if session.daterange is defined %}
+<h3>Current Date Range and Times</h3>
+{{ session.daterange }} <br>
+{{ session.begin_time }} -> {{ session.end_time }}
+{% endif %}
+
 </form>
 {% if session.calendars is defined  %}
   <h3>Please select the calendar(s) you would like to use: </h3>

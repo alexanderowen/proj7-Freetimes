@@ -44,8 +44,8 @@ APPLICATION_NAME = 'MeetMe class project'
 @app.route("/index")
 def index():
   app.logger.debug("Entering index")
-  if 'begin_date' not in flask.session:
-    init_session_values()
+  ## if 'begin_date' not in flask.session:
+    ## init_session_values()
   return render_template('index.html')
 
 @app.route("/choose")
@@ -85,16 +85,19 @@ def find_busy():
 	for index in indices:
 		calendar = flask.session['calendars'][int(index)]
 		rslt = {calendar['summary'] : []}
-		for day in arrow.Arrow.span_range('day', start_datetime, end_date):
+		timeMin = start_datetime.isoformat()
+		timeMax = end_datetime.isoformat()
+		for day in arrow.Arrow.span_range('day', start_datetime, end_date):		
 			query = {
-				"timeMin": start_datetime.isoformat(),
-				"timeMax": end_datetime.isoformat(),
+				"timeMin": timeMin,
+				"timeMax": timeMax,
 				"items": [
 					{
 						"id": calendar['id']
 					}
 				]
 			}
+			
 			gcal_request = gcal_service.freebusy().query(body=query)	
 			result = gcal_request.execute()
 			for busytime in result['calendars'][calendar['id']]['busy']:
@@ -104,7 +107,11 @@ def find_busy():
 			    end = arrow.get(busytime['end']).to('local')
 			    conflict = "{} - {}".format(start.format("MM/DD/YYYY hh:mm A"), end.format("hh:mm A"))
 			    rslt[calendar['summary']].append(conflict)
+			    
+			timeMin = next_day(timeMin)
+			timeMax = next_day(timeMax)
 		busytimes.append(rslt)
+		
 		
 	flask.session['busytimes'] = busytimes	
 	#app.logger.debug("RESPONSE!!!", result)
@@ -233,7 +240,7 @@ def setrange():
     daterange = request.form.get('daterange')
     begintime = request.form.get('begintime')
     endtime = request.form.get('endtime')
-    flask.flash("Setrange gave us '{}', '{}', '{}'".format(daterange, begintime, endtime))
+    ## flask.flash("Setrange gave us '{}', '{}', '{}'".format(daterange, begintime, endtime))
     
     bt = arrow.get(begintime, "HH:mm").replace(tzinfo=tz.tzlocal()).isoformat().split("T")[1]
     et = arrow.get(endtime, "HH:mm").replace(tzinfo=tz.tzlocal()).isoformat().split("T")[1]
@@ -270,39 +277,6 @@ def init_session_values():
     flask.session["end_time"] = interpret_time("5pm")
 
 
-# THIS MAY NEED TO BE TOSSED
-def interpret_time( text ):
-    """
-    Read time in a human-compatible format and
-    interpret as ISO format with local timezone.
-    May throw exception if time can't be interpreted. In that
-    case it will also flash a message explaining accepted formats.
-    """
-    app.logger.debug("Decoding time '{}'".format(text))
-    time_formats = ["ha", "h:mma",  "h:mm a", "H:mm", "HH:mm"]
-    try: 
-        as_arrow = arrow.get(text, time_formats).replace(tzinfo=tz.tzlocal())
-        app.logger.debug("Succeeded interpreting time")
-    except:
-        app.logger.debug("Failed to interpret time")
-        flask.flash("Time '{}' didn't match accepted formats 13:30 or 1:30pm"
-              .format(text))
-        raise
-    return as_arrow.isoformat()
-
-# THIS MAY NEED TO BE TOSSED
-def interpret_date( text ):
-    """
-    Convert text of date to ISO format used internally,
-    with the local time zone.
-    """
-    try:
-      as_arrow = arrow.get(text, "MM/DD/YYYY").replace(
-          tzinfo=tz.tzlocal())
-    except:
-        flask.flash("Date '{}' didn't fit expected format 12/31/2001")
-        raise
-    return as_arrow.isoformat()
 
 def next_day(isotext):
     """
@@ -351,6 +325,24 @@ def list_calendars(service):
             })
     return sorted(result, key=cal_sort_key)
 
+def interpret_time( text ):
+    """
+    Read time in a human-compatible format and
+    interpret as ISO format with local timezone.
+    May throw exception if time can't be interpreted. In that
+    case it will also flash a message explaining accepted formats.
+    """
+    app.logger.debug("Decoding time '{}'".format(text))
+    time_formats = ["ha", "h:mma",  "h:mm a", "H:mm"]
+    try: 
+        as_arrow = arrow.get(text, time_formats).replace(tzinfo=tz.tzlocal())
+        app.logger.debug("Succeeded interpreting time")
+    except:
+        app.logger.debug("Failed to interpret time")
+        flask.flash("Time '{}' didn't match accepted formats 13:30 or 1:30pm"
+              .format(text))
+        raise
+    return as_arrow.isoformat()
 
 def cal_sort_key( cal ):
     """
