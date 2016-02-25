@@ -21,6 +21,9 @@ import httplib2   # used in oauth2 flow
 # Google API for services 
 from apiclient import discovery
 
+# Module to handle busy/free time scheduling
+from agenda import *
+
 # Favicon rendering
 import os
 
@@ -77,24 +80,40 @@ def find_busy():
 	
 	credentials = valid_credentials()
 	gcal_service = get_gcal_service(credentials)
-	set_busy_times(gcal_service, indices)
+	
+	busy_times, free_times = get_freebusy_times(gcal_service, indices)	
+	flask.session['busy_times'] = busy_times	
+	flask.session['free_times'] = free_times
 	
 	return jsonify(result={})
 	
-def set_busy_times(gcal_service, calendar_indices):
-	'''
-	Sets the Flask session variable 'busytimes' based on date/time range and 
-	calendars selected.
 	
-	flask.session['busytimes'] is a list of calendar busy times of the form 
-	[ {"cal1" : [busy_range_1, busy_range_2, ...]}, {"cal2" : [...]}, ... ]
+def get_freebusy_times(gcal_service, calendar_indices):
+	'''
+	Sends requests to the Google Calendar API to determine the busy times for 
+	the given calendars (based on the indices). Uses those busy times to determine
+	the free times of a given time duration.
 	
 	Args:
 		gcal_service: 		Google Calendar Service Object, the service to 
 							send freebusy requests to
 		calendar_indices: 	String, the indices of the calendars selected
+	Returns:
+		busy_times, free_times: 	A tuple consisting of the busy times and 
+								free times of the given calendars. Both are
+								lists of the form
+								[ 
+								  {"cal1" : [
+												[time_start,time_end],
+											 	[...]
+											]
+								   }, 
+								  {"cal2" : ...} 
+								]
 	'''
-	busytimes = []
+	busy_times = []
+	free_times = []
+	
 	start_date, end_date = flask.session['daterange'].split(" - ")
 	time_range_start = arrow.get(start_date + flask.session['begin_time'], "MM/DD/YYYYHH:mm:ssZZ")
 	time_range_end = arrow.get(start_date + flask.session['end_time'], "MM/DD/YYYYHH:mm:ssZZ")
@@ -103,7 +122,10 @@ def set_busy_times(gcal_service, calendar_indices):
 	app.logger.debug("Sending freebusy requests to Google Cal")
 	for index in calendar_indices:
 		calendar = flask.session['calendars'][int(index)]
-		rslt = {calendar['summary'] : []}
+		calendar_name = calendar['summary']
+		
+		busy = {calendar_name : []}
+		free = {calendar_name : []}
 		timeMin = time_range_start.isoformat()
 		timeMax = time_range_end.isoformat()
 		
@@ -121,19 +143,60 @@ def set_busy_times(gcal_service, calendar_indices):
 			gcal_request = gcal_service.freebusy().query(body=query)	
 			result = gcal_request.execute()
 			
-			for busytime in result['calendars'][calendar['id']]['busy']:
-			    start = arrow.get(busytime['start']).to('local')
-			    end = arrow.get(busytime['end']).to('local')
-			    conflict = "{} - {}".format(start.format("MM/DD/YYYY hh:mm A"), end.format("hh:mm A"))
-			    
-			    rslt[calendar['summary']].append(conflict)
-			    
+			for busy_time in result['calendars'][calendar['id']]['busy']:
+			    start = arrow.get(busy_time['start']).to('local')
+			    end = arrow.get(busy_time['end']).to('local')
+			    conflict = [start.isoformat(), end.isoformat()]
+			    busy[calendar_name].append(conflict)
+			# Using the busy times, determine the free times
+			free_time = determine_free_times(busy[calendar_name], timeMin, timeMax)
+			free[calendar_name].extend(free_time)
+			
 			timeMin = next_day(timeMin)
 			timeMax = next_day(timeMax)
-		busytimes.append(rslt)		
 		
-	flask.session['busytimes'] = busytimes		
-	return
+		free_times.append(free)
+		busy_times.append(busy)		
+		
+	return busy_times, free_times
+	
+def determine_free_times(busy_times, free_start, free_end):
+	''' Given a list of busy times, and a free block (a beginning and ending free time),
+	determines the free times. In other words, finds the complement of the busy_times.
+	
+	Args:
+		busy_times: 		A list of busy times in the form [
+															 	[start, end],
+															 	[...]
+															 ]
+		free_start: 		A string representing the isoformat of the start time of the
+							free block.
+		free_end:			A string representing the isoformat of the end time of the
+							free block.
+							
+	Returns:
+		free_times:			A list of free times the form [
+																[start, end],
+																[...]
+														  ]
+	'''
+	# app.logger.debug("Determining free times")
+	busy_agenda = Agenda()
+	for busy_time in busy_times:
+		start, end = busy_time
+		start = arrow.get(start)
+		end = arrow.get(end)
+		busy_agenda.append(Appt(start, end, ""))
+	
+	busy_agenda.normalize()
+	free_start = arrow.get(free_start)
+	free_end = arrow.get(free_end)
+	free_block = Appt(free_start, free_end, "")
+	free_agenda = busy_agenda.complement(free_block)
+	
+	free_times = [appt.get_isoformat() for appt in free_agenda]
+	
+	return free_times		
 	
 ####
 #
@@ -358,12 +421,21 @@ def format_arrow_date( date ):
         return normal.format("ddd MM/DD/YYYY")
     except:
         return "(bad date)"
-
+        
 @app.template_filter( 'fmttime' )
 def format_arrow_time( time ):
     try:
         normal = arrow.get(time, "HH:mm:ssZZ")
         return normal.format("hh:mm A")
+    except:
+        return "(bad time)"
+
+        
+@app.template_filter( 'fmtdatetime' )
+def format_arrow_datetime( datetime ):
+    try:
+        normal = arrow.get(datetime)
+        return normal.format("MM/DD/YYYY hh:mm A")
     except:
         return "(bad time)"
     

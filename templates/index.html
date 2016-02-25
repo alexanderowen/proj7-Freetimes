@@ -22,7 +22,8 @@
 <body>
 <div class="container">
 
-<h1>Busy times</h1>
+<h1>Free times</h1>
+<h4>Select a date and time range below to determine your available times.</h4>
 
 <!--
   If there are any warnings or other messages from a prior action,
@@ -108,9 +109,36 @@
 
 <br>
 
-{% if session.busytimes is defined  %}
+{% if session.free_times is defined  %}
+<h3>Here are your free times</h3>
+  {% for cal in session.free_times %}
+    {% for name, free_block in cal.items() %}
+    
+      {% if loop.first %}
+        <div class="row">
+          <h4>{{ name }}</h4>
+        </div>
+      {% endif %}
+    
+      {% for free_time in free_block %}  
+        <div class="row">
+      	{% for time in free_time %} 
+      	  {% if loop.first %}       
+           {{ time | fmtdatetime }} -
+          {% else %}
+           {{ time | fmttime }} 
+          {% endif %}       
+        {% endfor %}
+        </div>
+      {% endfor %}    
+    {% endfor %}
+  {% endfor %}
+{% endif %}
+
+
+{% if session.busy_times is defined  %}
 <h3>Here are your busy times</h3>
-  {% for cal in session.busytimes %}
+  {% for cal in session.busy_times %}
     {% for name, conflicts in cal.items() %}
     
       {% if loop.first %}
@@ -121,7 +149,13 @@
     
       {% for conflict in conflicts %}  
         <div class="row">
-           {{ conflict }}
+      	{% for time in conflict %} 
+      	  {% if loop.first %}       
+           {{ time | fmtdatetime }} -
+          {% else %}
+           {{ time | fmttime }} 
+          {% endif %}       
+        {% endfor %}
         </div>
       {% endfor %}    
     {% endfor %}
